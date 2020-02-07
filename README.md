@@ -3,13 +3,17 @@ Simple audio editor for python.task that allow to
 cut join spedup/speeddown mp3 and wav files
 
 USING PROGRAM
+
 ---
 Start - python3 index.py
 Download examples python3 download_examples.py
+
 ---
 F1 - HELP window
+
 ---
 CTRL + C - exit program
+
 ---
 CHANGING WINDOW
     Shift + E - FRAGMENT EDITOR
@@ -22,15 +26,18 @@ CHANGING WINDOW
 TRACKS WINDOW
     SPACE (in songs menu) - play/stop song
     ENTER (on button) - set track and put it on fragments
+
 ---
 FRAGMENT EDITOR
     SPACE - play fragment
-    Enter - change current property of fragment
+    Enter - change current property of fragment.
+
 ---
 FRAGMENTS
     SPACE - play fragment
     Shift + D - delete fragment
     Enter - Select Fragment for editing
+
 ---
 PLAYER
     SPACE - Play/Pause

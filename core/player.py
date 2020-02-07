@@ -1,11 +1,13 @@
 import pyaudio
 import threading
 import time
+from interface.noalsaerror import noalsaerr
 
 
 class Player:
     def __init__(self, sampwidth=2, channels=2, rate=44100):
-        self.pyAudio = pyaudio.PyAudio()
+        with noalsaerr():
+            self.pyAudio = pyaudio.PyAudio()
         self.player = self.pyAudio.open(format=self
                                         .pyAudio
                                         .get_format_from_width(sampwidth),
@@ -18,7 +20,7 @@ class Player:
         self._rate = rate
 
         self._isPlaying = False
-        self._data=None
+        self._data = None
         self._thread = None
         self._dt = 10
         self._nframes = 0

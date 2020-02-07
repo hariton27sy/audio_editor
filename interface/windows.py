@@ -3,16 +3,46 @@ import math
 import os
 import threading
 import time
+import datetime
 
 from core import player as pl
 from core import fragment as fr
+import pydub
 
 # Color pairs for windows #
 WINDOW = 1
 ACTIVE_WINDOW = 2
 ACTIVE_LINE = 2
 MENU = 1
+
+
 # ----------------------- #
+
+
+def del_last_digit(num: float):
+    str_num = str(num)
+    if str_num[-2:] == '.0' or str_num[-2:] == ',0':
+        return int(num)
+
+    if len(str_num) == 1:
+        return 0
+
+    if '.' in str_num or ',' in str_num:
+        return float(str_num[:-1])
+
+    return int(str_num[:-1])
+
+
+def format_time(time_: float):
+    """time in seconds"""
+    time_ = round(time_, 1)
+    ms = int((time_ - int(time_)) * 10)
+    time_ = int(time_)
+    s = time_ % 60
+    m = time_ // 60 % 60
+    h = time_ // 3600
+
+    return f"{h}:{m:02}:{s:02}.{ms}"
 
 
 class Window:
@@ -42,14 +72,15 @@ class Window:
 
 class Menu(Window):
     def __init__(self, parent):
-        super().__init__(0, 0, 1, parent.width, "menu", "Sh+M", parent)
+        super().__init__(0, 0, 1, parent.width, "menu", "F2", parent)
         self.win.attron(curses.color_pair(MENU))
         self.walker = None
 
-        self.win_key = ord("M")
+        self.win_key = curses.KEY_F2
 
         self.options = [
             "open",
+            "load project",
             "save project",
             "export track"
         ]
@@ -90,22 +121,83 @@ class Menu(Window):
             self.current = max(0, self.current - 1)
         elif key == curses.KEY_RIGHT:
             self.current = min(len(self.options) - 1, self.current + 1)
-        elif key == 10 and self.current == 0:
-            self.walker = FileWalker(self.parent.height // 4,
-                                     self.parent.width // 4,
-                                     self.parent.height // 2,
-                                     self.parent.width // 2, self.parent)
+        elif key == 10:
+            if self.current == 0:
+                self.walker = FileWalker(self.parent.height // 4,
+                                         self.parent.width // 4,
+                                         self.parent.height // 2,
+                                         self.parent.width // 2, self.parent)
 
-        if self.walker and self.walker.result:
-            try:
-                self.parent.project.add_track(self.walker.result)
-            except Exception:
-                pass
+            if self.current == self.options.index("export track"):
+                self.walker = FileSaver(self.parent.height // 4,
+                                        self.parent.width // 4,
+                                        self.parent.height // 2,
+                                        self.parent.width // 2, self.parent)
+
+            if self.current == self.options.index('save project'):
+                self.walker = FileSaver(self.parent.height // 4,
+                                        self.parent.width // 4,
+                                        self.parent.height // 2,
+                                        self.parent.width // 2, self.parent,
+                                        ['.proj'])
+
+            if self.current == self.options.index('load project'):
+                self.walker = FileWalker(self.parent.height // 4,
+                                         self.parent.width // 4,
+                                         self.parent.height // 2,
+                                         self.parent.width // 2, self.parent)
+
+        if self.walker and self.walker.result and self.current == 0:
+            if self.walker.result != "<ESC>":
+                try:
+                    if os.path.isdir(self.walker.result):
+                        self.parent.project.add_dir(self.walker.result)
+                    else:
+                        self.parent.project.add_track(self.walker.result)
+                except Exception:
+                    pass
+            self.walker = None
+            self.parent.active_win = self.parent.tracksWin
+            self.parent.redraw()
+
+        if (self.walker and self.walker.result and
+                self.current == self.options.index('export track') and
+                self.walker.end is True):
+            if self.walker.result != "<ESC>":
+                self.save_file(self.walker.result)
+
+            self.walker = None
+            self.parent.active_win = self.parent.tracksWin
+            self.parent.redraw()
+
+        if (self.walker and self.walker.result and
+                self.current == self.options.index('save project') and
+                self.walker.end is True):
+            if self.walker.result != "<ESC>":
+                self.parent.project.save_project(self.walker.result)
+
+            self.walker = None
+            self.parent.active_win = self.parent.tracksWin
+            self.parent.redraw()
+
+        if (self.walker and self.walker.result and
+                self.current == self.options.index('load project')):
+            if self.walker.result != "<ESC>":
+                try:
+                    if not os.path.isdir(self.walker.result):
+                        self.parent.project.load_project(self.walker.result)
+                except Exception:
+                    pass
             self.walker = None
             self.parent.active_win = self.parent.tracksWin
             self.parent.redraw()
 
         self.redraw()
+
+    def save_file(self, filename):
+        segment = self.parent.project.export()
+        ext = os.path.splitext(filename)[-1]
+        pydub.AudioSegment.export(segment, filename, ext[1:])
 
 
 class ScrollableWindow(Window):
@@ -147,7 +239,7 @@ class ScrollableWindow(Window):
 
     def draw_list(self, elements, print_pos=True):
         for i in range(self.top_position, self.top_position +
-                                          self.height - self.padding * 2):
+                       self.height - self.padding * 2):
             if i < len(elements):
                 line = f"{i + 1}. " if print_pos else ""
                 line += elements[i]
@@ -164,8 +256,8 @@ class ScrollableWindow(Window):
 
 class Tracks(ScrollableWindow):
     def __init__(self, y, x, height, width, parent):
-        super().__init__(y, x, height, width, "Tracks", "Sh+4", parent)
-        self.win_key = ord("$")
+        super().__init__(y, x, height, width, "Tracks", "SHIFT+T", parent)
+        self.win_key = ord("T")
 
     def redraw(self):
         super().redraw()
@@ -196,7 +288,7 @@ class Tracks(ScrollableWindow):
 class FileWalker(ScrollableWindow):
     def __init__(self, y, x, height, width, parent):
         super().__init__(y, x, height, width, "Open File", parent=parent)
-        self.padding = 2
+        self.padding = 4
 
         self._path = os.path.abspath(".")
         self._elems = ['..']
@@ -213,27 +305,33 @@ class FileWalker(ScrollableWindow):
         self.win.attron(curses.color_pair(ACTIVE_WINDOW))
         self.win.border()
         self.win.addstr(0, (self.width - len(self.name)) // 2, self.name)
+        self.win.addstr(2, 2, "Press 's' for selecting current directory")
         self.win.attron(curses.color_pair(WINDOW))
         self.draw_list(self._elems)
         self.win.refresh()
 
     def check_key(self, key):
-        path = os.path.join(self._path, self._elems[self.current])
-
+        if key == ord('s'):
+            self.result = self._path
         if key == curses.KEY_DOWN and self.current + 1 < len(self._elems):
             self.scroll(1)
         if key == curses.KEY_UP and self.current > 0:
             self.scroll(-1)
         if key == 10:
+            path = os.path.join(self._path, self._elems[self.current])
             if os.path.isdir(path):
                 self._path = os.path.abspath(path)
                 self._elems = [".."]
                 temp = next(os.walk(self._path))
                 self._elems.extend(temp[1])
                 self._elems.extend(temp[2])
+                self.current = 0
+                self.top_position = 0
             else:
                 self.result = path
                 return
+        if key == 27:
+            self.result = "<ESC>"
         self.redraw()
 
 
@@ -243,12 +341,12 @@ class Player(ScrollableWindow):
 
     def __init__(self, player: pl.Player, y, x, height, width, parent=None):
         super().__init__(y, x, height, width, name="Player",
-                         key="Sh+3", parent=parent)
+                         key="SHIFT+P", parent=parent)
 
         self.player = player
         self.isWorking = True
 
-        self.win_key = ord("#")
+        self.win_key = ord("P")
 
         self._thread = threading.Thread(target=self._redraw_timeline)
         self._thread.start()
@@ -257,8 +355,8 @@ class Player(ScrollableWindow):
         super(Player, self).redraw()
         self.win.addstr(self.padding, self.padding, self.get_timeline())
         self.win.addstr(self.padding + 1, self.padding,
-                        f"{round(self.player.current_time)}/"
-                        f"{round(self.player.full_time)}")
+                        f"{format_time(self.player.current_time)}/"
+                        f"{format_time(self.player.full_time)}")
 
         self.win.addstr(self.height - self.padding, self.padding,
                         "Space - play/pause, LEFT/RIGHT - back/forward, "
@@ -313,17 +411,30 @@ class Player(ScrollableWindow):
 class Fragments(ScrollableWindow):
     def __init__(self, y, x, height, width, parent):
         super(Fragments, self).__init__(y, x, height, width,
-                                        "Fragments", "Sh+2", parent)
+                                        "Fragments", "SHIFT+F", parent)
 
-        self.win_key = ord("@")
+        self.win_key = ord("F")
+        self.padding = 4
+
+        funcs = {
+            'Сдвинуть, убрать промежутки': lambda: self.parent.project.stick()
+        }
+        self.active_win = None
+        self.tools = Tools(y + 2, x + 2, height - 4, width - 4, funcs,
+                           self)
 
     def check_key(self, key):
+        if self.active_win:
+            self.tools.check_key(key)
+            self.redraw()
+            return
+
         if key == curses.KEY_DOWN and self.current + 1 < len(
                 self.parent.project.fragments):
             self.scroll(1)
         if key == curses.KEY_UP and self.current > 0:
             self.scroll(-1)
-        if key == 10:
+        if key == 10 and self.current < len(self.parent.project.fragments):
             self.parent.active_win = self.parent.editor_win
             self.parent.active_win.fragment = (
                 self.parent.project.fragments[self.current])
@@ -335,25 +446,37 @@ class Fragments(ScrollableWindow):
             data = frag.get_fragment()
             self.parent.player.play(data)
             self.parent.redraw()
+        if key == ord("S"):
+            frag = self.parent.project.export()
+            self.parent.player.play(frag.raw_data)
+            self.parent.redraw()
+        if key == ord('t'):
+            self.active_win = self.tools
+        if key == ord('d'):
+            self.parent.project.del_fragment(self.current)
 
         self.redraw()
 
     def redraw(self):
         super(Fragments, self).redraw()
 
+        self.win.addstr(self.height - 3, 2, 'd - delete frag, t - tools,')
+        self.win.addstr(self.height - 2, 2, 'Shift+S - compile and play all')
         items = list(map(lambda f: f"{f.name} (length: {f.project_length})",
                          self.parent.project.fragments))
 
         self.draw_list(items)
         self.win.refresh()
+        if self.active_win:
+            self.tools.redraw()
 
 
 class FragmentEditor(ScrollableWindow):
     def __init__(self, y, x, height, width, parent):
         super().__init__(y, x, height, width,
-                         "Fragment Editor", "Sh+1", parent)
+                         "Fragment Editor", "SHIFT+E", parent)
 
-        self.win_key = ord("!")
+        self.win_key = "E"
         self.fragment = None
 
         self._items = {
@@ -369,13 +492,13 @@ class FragmentEditor(ScrollableWindow):
 
         self._handlers = [
             lambda k: self.check_key_name(k),
-            lambda k: None,
-            lambda k: None,
-            lambda k: None,
+            lambda k: self.check_key_project_begin(k),
+            lambda k: self.check_key_track_begin(k),
+            lambda k: self.check_key_project_length(k),
             lambda k: self.check_key_volume(k),
             lambda k: self.check_key_speed(k),
-            lambda k: None,
-            lambda k: None,
+            lambda k: self.check_key_fade_in(k),
+            lambda k: self.check_key_fade_out(k)
         ]
 
     def redraw(self):
@@ -400,24 +523,28 @@ class FragmentEditor(ScrollableWindow):
             return
         if key == curses.KEY_DOWN and self.current + 1 < len(self._items):
             self.scroll(1)
-        elif key == curses.KEY_UP and self.current > 0:
-            self.scroll(-1)
+        elif key == curses.KEY_UP:
+            if self.current > 0:
+                self.scroll(-1)
         else:
             self._handlers[self.current](key)
+
+        self.parent.project.sort_fragments()
+        self.parent.fragments_win.redraw()
 
         self.redraw()
 
     def check_key_name(self, key):
-        if key == 8:
+        if key == curses.KEY_BACKSPACE:
             if len(self.fragment.name) > 1:
                 self.fragment.name = self.fragment.name[:-1]
             return
-        key = chr(key)
-        if key.isprintable():
-            self.fragment.name += key
+
+        if chr(key).isprintable():
+            self.fragment.name += chr(key)
 
     def check_key_volume(self, key):
-        if key == curses.KEY_LEFT and self.fragment.volume > 0:
+        if key == curses.KEY_LEFT and self.fragment.volume > 0.01:
             self.fragment.volume = max(self.fragment.volume - 0.01, 0)
         if key == curses.KEY_RIGHT:
             self.fragment.volume += 0.01
@@ -428,10 +555,172 @@ class FragmentEditor(ScrollableWindow):
         if key == curses.KEY_RIGHT:
             self.fragment.speed += 0.05
 
-    def check_common_key(self, field, key):
-        if key == 8:
-            return float(str(field)[:-1])
-        if chr(key).isdigit() or chr(key) == '.' and '.' not in str(field):
-            return float(str(field) + chr(key))
+    def check_key_track_begin(self, key):
+        if key == curses.KEY_LEFT:
+            self.fragment.set_track_begin(self.fragment.track_begin - .5)
+        if key == curses.KEY_RIGHT:
+            self.fragment.set_track_begin(self.fragment.track_begin + .5)
+        if key == curses.KEY_BACKSPACE:
+            self.fragment.set_track_begin(del_last_digit(
+                self.fragment.track_begin))
+        if chr(key).isdigit():
+            num = float(str(self.fragment.track_begin) + chr(key))
+            if num - int(num) < 1e-10:
+                num = int(num)
+            self.fragment.set_track_begin(num)
 
-        return field
+    def check_key_project_begin(self, key):
+        if key == curses.KEY_LEFT and self.fragment.project_begin > 0.5:
+            self.fragment.project_begin -= .5
+        if key == curses.KEY_RIGHT:
+            self.fragment.project_begin += .5
+        if key == curses.KEY_BACKSPACE:
+            self.fragment.project_begin = del_last_digit(
+                self.fragment.project_begin)
+        if chr(key).isdigit():
+            num = float(str(self.fragment.project_begin) + chr(key))
+            if num - int(num) < 1e-10:
+                num = int(num)
+            self.fragment.project_begin = num
+
+    def check_key_project_length(self, key):
+        if key == curses.KEY_LEFT:
+            self.fragment.set_project_length(self.fragment.project_length - .5)
+        if key == curses.KEY_RIGHT:
+            self.fragment.set_project_length(self.fragment.project_length + .5)
+        if key == curses.KEY_BACKSPACE:
+            self.fragment.set_project_length(del_last_digit(
+                self.fragment.project_length))
+        if chr(key).isdigit():
+            num = float(str(self.fragment.project_length) + chr(key))
+            if num - int(num) < 1e-10:
+                num = int(num)
+            self.fragment.set_project_length(num)
+
+    def check_key_fade_in(self, key):
+        if key == curses.KEY_LEFT and self.fragment.fade_in >= 0.5:
+            self.fragment.fade_in -= 0.5
+        if (key == curses.KEY_RIGHT and
+                self.fragment.fade_in < self.fragment.project_length):
+            self.fragment.fade_in += 0.5
+
+        if key == curses.KEY_BACKSPACE:
+            self.fragment.fade_in = del_last_digit(
+                self.fragment.fade_in)
+        if chr(key).isdigit():
+            num = float(str(self.fragment.fade_in) + chr(key))
+            if num - int(num) < 1e-10:
+                num = int(num)
+            self.fragment.fade_in = num
+
+    def check_key_fade_out(self, key):
+        if key == curses.KEY_LEFT and self.fragment.fade_out >= 0.5:
+            self.fragment.fade_out -= 0.5
+        if (key == curses.KEY_RIGHT and
+                self.fragment.fade_out < self.fragment.project_length):
+            self.fragment.fade_out += 0.5
+
+        if key == curses.KEY_BACKSPACE:
+            self.fragment.fade_out = del_last_digit(
+                self.fragment.fade_out)
+        if chr(key).isdigit():
+            num = float(str(self.fragment.fade_out) + chr(key))
+            if num - int(num) < 1e-10:
+                num = int(num)
+            self.fragment.fade_out = num
+
+
+class HelpWindow(ScrollableWindow):
+    def __init__(self, y, x, height, width, data, parent):
+        super().__init__(y, x, height, width, 'Help',
+                         'F1 (ESC for close this window)', parent)
+        self.win_key = curses.KEY_F1
+        self.data = list(map(lambda x_: x_[:-1], data))
+
+    def redraw(self):
+        super().redraw()
+        self.draw_list(self.data, False)
+        self.win.refresh()
+
+    def check_key(self, key):
+        if key == curses.KEY_DOWN and self.current < len(self.data) - 1:
+            self.scroll(1)
+
+        if key == curses.KEY_UP and self.current > 0:
+            self.scroll(-1)
+
+        if key == 27:
+            self.parent.active_win = self.parent.player_win
+            self.parent.redraw()
+            return
+
+        self.redraw()
+
+
+class Tools(ScrollableWindow):
+    def __init__(self, y, x, height, width, funcs: dict, parent):
+        super().__init__(y, x, height, width, "Tools", parent=parent)
+        self.funcs = funcs
+
+    def redraw(self):
+        super().redraw()
+        self.draw_list(list(self.funcs.keys()))
+
+        self.win.refresh()
+
+    def check_key(self, key):
+        if key == curses.KEY_UP and self.current > 0:
+            self.scroll(-1)
+        if key == curses.KEY_DOWN and self.current + 1 < len(self.funcs):
+            self.scroll(1)
+        if key == 27:
+            self.parent.active_win = None
+        if key == 10:
+            k = list(self.funcs.keys())[self.current]
+            self.funcs[k]()
+            self.parent.active_win = None
+
+        self.parent.redraw()
+
+
+class FileSaver(FileWalker):
+    def __init__(self, y, x, height, width, parent, exts=None):
+        super().__init__(y, x, height, width, parent)
+        self.end = False
+        self.filename = ''
+        self.exts = exts
+        if not exts:
+            self.exts = ['.wav', '.mp3']
+        self.ext = 0
+
+    def redraw(self):
+        if not self.result:
+            super().redraw()
+        else:
+            self.draw_filename_input()
+
+    def check_key(self, key):
+        if not self.result:
+            super().check_key(key)
+        else:
+            if key == curses.KEY_DOWN or key == curses.KEY_UP:
+                self.ext = (self.ext + 1) % len(self.exts)
+            elif key == 27:
+                self.result = "<ESC>"
+                self.end = True
+            elif key == curses.KEY_BACKSPACE:
+                self.filename = self.filename[:-1]
+            elif key == 10:
+                self.end = True
+                self.result = (os.path.join(self.result, self.filename) +
+                               self.exts[self.ext])
+            elif chr(key).isprintable():
+                self.filename += chr(key)
+
+    def draw_filename_input(self):
+        ScrollableWindow.redraw(self)
+        self.win.addstr(2, 2, "Enter filename:")
+        self.win.addstr(3, 2, self.filename)
+        self.win.addstr(4, 2, 'extension: ' + self.exts[self.ext])
+        self.win.addstr(5, 2, 'for changing extension press UP or DOWN')
+        self.win.refresh()

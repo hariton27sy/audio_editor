@@ -1,5 +1,6 @@
 import pydub
 import os
+from interface.noalsaerror import noalsaerr
 
 
 class Track:
@@ -8,8 +9,11 @@ class Track:
         self.path = path
         self.format = os.path.splitext(path)[-1][1:]
         try:
-            temp = pydub.AudioSegment.from_file(self.path, self.format)
+            with noalsaerr():
+                temp = pydub.AudioSegment.from_file(self.path, self.format)
             self.length = len(temp) / 1000
+            self.rate = temp.frame_rate
+            self.channels = temp.channels
         except Exception:
             self.path = None
 
@@ -22,8 +26,9 @@ class Track:
 
         if length is None or length >= self.length:
             length = self.length
-        return pydub.AudioSegment.from_file(
-            self.path, self.format)[begin * 1000:(begin + length) * 1000]
+        with noalsaerr():
+            return pydub.AudioSegment.from_file(
+                self.path, self.format)[begin * 1000:(begin + length) * 1000]
 
     def __repr__(self):
         return f"Track({self.path})"

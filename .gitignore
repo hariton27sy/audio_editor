@@ -1,3 +1,7 @@
 *.zip
 .idea
 music
+.env
+.pytest_cache
+__pycache__
+*.proj

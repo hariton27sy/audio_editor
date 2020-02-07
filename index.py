@@ -1,3 +1,5 @@
+#! python3
+
 from interface import tui
 import curses
 

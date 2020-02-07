@@ -1,3 +1,7 @@
+# Audio Editor
+Simple audio editor for python.task that allow to
+cut join spedup/speeddown mp3 and wav files
+
 USING PROGRAM
 ---
 Start - python3 index.py
@@ -33,3 +37,9 @@ PLAYER
     RIGHT_ARROW - go forward
     LEFT_ARROW - go back
     Shift + S - Stop (current pos = 0)
+
+## Requirements
+This script require installed portaudio package
+and pyaduio, pydub python libraries
+
+Made in 2019 (Some changes in 2020)
